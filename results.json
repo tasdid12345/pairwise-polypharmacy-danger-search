@@ -1,0 +1,35 @@
+{
+  "question": "Can a class-balanced LightGBM model with pairwise co-use features flag dangerous polypharmacy better than a standard MLP surrogate that sees only the raw per-substance levels, on a public substance-use dataset with a rule-based danger label?",
+  "method": "UCI Drug Consumption (quantified); use = level>=3; polypharmacy = >=5 substances used; dangerous = polypharmacy AND an a-priori sedation-risk co-use pair. One stratified 70/30 split; 3-fold CV on training data for hyperparameters and decision threshold; model seeds 42-44; PR-AUC main metric, F1 and ROC-AUC secondary.",
+  "dataset": {
+    "name": "UCI Drug Consumption (quantified)",
+    "source_url": "https://archive.ics.uci.edu/dataset/373/drug+consumption+quantified",
+    "n_rows": 1885,
+    "n_train": 1319,
+    "n_test": 566,
+    "same_as_paper": false,
+    "baseline_is_papers_method": false
+  },
+  "metric_name": "PR-AUC (average precision) on dangerous-polypharmacy label",
+  "higher_is_better": true,
+  "baseline": "Standardised MLPClassifier (64-32 hidden units) on the 18 raw substance levels; alpha tuned by CV. Stands in for the neural reward model; not the paper's neural bandit.",
+  "improved": "Class-balanced LightGBM on raw levels + total substance count + all 153 pairwise co-use indicators; small CV grid over num_leaves and n_estimators.",
+  "metrics": {
+    "baseline_score": 0.9603932565505776,
+    "baseline_score_std": 0.011608310399490866,
+    "improved_score": 1.0,
+    "improved_score_std": 0.0,
+    "improvement": 0.03960674344942239,
+    "baseline_f1": 0.8948979748183389,
+    "baseline_f1_std": 0.025457199607108322,
+    "improved_f1": 1.0,
+    "improved_f1_std": 0.0,
+    "baseline_roc_auc": 0.9869736279555578,
+    "baseline_roc_auc_std": 0.003968410573585162,
+    "improved_roc_auc": 1.0,
+    "improved_roc_auc_std": 0.0,
+    "n_test_positive": 147,
+    "test_positive_rate": 0.2597173144876325
+  },
+  "notes": "Stand-in rule-based label, not clinical truth. The improved feature set contains the exact pairwise indicators used to define the label, so the gain partly reflects label construction. Only one train/test split was used (split-once rule), so std covers model seeds 42-44 only, not split variability. Threshold for F1 chosen on training out-of-fold predictions. Test set was not used for any selection. Semer (near-constant, fictitious drug) excluded. Dataset is small (about 1.9k rows), so no subsampling was needed. Substance columns are located by normalised name across features and targets."
+}
