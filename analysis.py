@@ -1,6 +1,6 @@
 """Baseline MLP (raw substance levels) vs class-balanced LightGBM (levels + pairwise co-use)
 for a rule-based 'dangerous polypharmacy' label on the UCI Drug Consumption (quantified) data."""
-import json, socket, sys, time
+import json, re, socket, sys, time
 from itertools import combinations
 
 import matplotlib
@@ -30,6 +30,19 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+
+def _find_col(df, name):
+    """Find a column by normalised name (case/punctuation/whitespace-insensitive)."""
+    target = _norm(name)
+    for c in df.columns:
+        if _norm(c) == target:
+            return c
+    raise KeyError(f"substance column '{name}' not found; available columns: {list(df.columns)}")
+
+
 def load_data():
     socket.setdefaulttimeout(60)  # 60 s timeout for network calls
     for attempt in range(5):  # retry with exponential backoff on 429 / 5xx / network errors
@@ -42,12 +55,19 @@ def load_data():
                 raise
             log(f"download failed ({e}); retry in {2 ** attempt}s")
             time.sleep(2 ** attempt)
-    X = ds.data.features
+    # The substance columns may sit in features or targets depending on package/metadata version,
+    # so search both frames.
+    parts = [ds.data.features]
+    if getattr(ds.data, "targets", None) is not None:
+        parts.append(ds.data.targets)
+    X = pd.concat(parts, axis=1)
+    X = X.loc[:, ~X.columns.duplicated()]
+    cols = [_find_col(X, c) for c in SUBS]
     # Levels 0-6; parse 'CLn' strings if the package returns them as text
     L = np.column_stack([
         X[c].to_numpy(float) if pd.api.types.is_numeric_dtype(X[c])
         else X[c].astype(str).str.extract(r"(\d)")[0].astype(float).to_numpy()
-        for c in SUBS])
+        for c in cols])
     use = L >= 3  # "using" = level >= 3
     n_use = use.sum(1)
     pairs = list(combinations(range(len(SUBS)), 2))  # 153 pairs
@@ -58,7 +78,7 @@ def load_data():
     y = ((n_use >= 5) & has_danger).astype(int)  # polypharmacy AND a listed co-use
     X_raw = L                                     # baseline features
     X_pair = np.column_stack([L, n_use, co])      # improved features
-    return X_raw, X_pair, y, len(ds.data.features)
+    return X_raw, X_pair, y, X.shape[1]
 
 
 def best_threshold(y, p):
@@ -115,8 +135,10 @@ def main():
     if not np.isfinite([b, i]).all():
         log("non-finite scores")
         sys.exit(1)
-    bf, bfs = agg("baseline", "f1"); if_, ifs = agg("improved", "f1")
-    br, brs = agg("baseline", "roc_auc"); ir, irs = agg("improved", "roc_auc")
+    bf, bfs = agg("baseline", "f1")
+    if_, ifs = agg("improved", "f1")
+    br, brs = agg("baseline", "roc_auc")
+    ir, irs = agg("improved", "roc_auc")
     metrics = {
         "baseline_score": b, "baseline_score_std": bs,
         "improved_score": i, "improved_score_std": is_,
@@ -149,7 +171,8 @@ def main():
                   "Only one train/test split was used (split-once rule), so std covers model seeds 42-44 only, "
                   "not split variability. Threshold for F1 chosen on training out-of-fold predictions. "
                   "Test set was not used for any selection. Semer (near-constant, fictitious drug) excluded. "
-                  "Dataset is small (about 1.9k rows), so no subsampling was needed."),
+                  "Dataset is small (about 1.9k rows), so no subsampling was needed. "
+                  "Substance columns are located by normalised name across features and targets."),
     }
     with open("results.json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
